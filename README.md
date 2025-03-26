@@ -74,6 +74,28 @@ This server is intended to be run as a separate process from the main ICO server
     *   `ico_id`: (String) The ID of the ICO.
     *   `limit`: (Integer, optional) Max orders to return (default 100).
 
+## Testing
+
+This project uses `pytest` for integration testing. The tests run the server as a subprocess and interact with it via its standard input/output, simulating an MCP client.
+
+1.  **Install Development Dependencies:**
+    Make sure you have the main dependencies installed, then install the development dependencies which include `pytest` and `pytest-asyncio`:
+
+    ```bash
+    # Navigate to the project root directory (where pyproject.toml is)
+    poetry install --with dev
+    ```
+
+2.  **Run Tests:**
+    Execute `pytest` from the project root directory:
+
+    ```bash
+    poetry run pytest
+    ```
+
+    Pytest will automatically discover and run the tests located in the `tests/` directory.
+
+
 ## Future Considerations
 
 *   **Atomic Swaps:** Implement secure, atomic order execution using Solana programs or established protocols.

@@ -1,1 +1,1 @@
-# MCP Solana DEX Sub-project
+# MCP Solana DEX
