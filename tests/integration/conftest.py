@@ -2,8 +2,10 @@ import asyncio
 import json
 import os
 import sys
+import importlib # Needed for reloading
 from pathlib import Path
-from typing import AsyncGenerator, Tuple
+from typing import AsyncGenerator, Tuple, Generator
+from unittest.mock import MagicMock # For mocking Context
 
 import pytest
 import pytest_asyncio
@@ -13,118 +15,67 @@ from pytest import MonkeyPatch
 ROOT_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
+# Import the module type for type hinting
+import types
+import mcp_solana_dex.server as server_module_for_hinting # Alias for clarity
+
 # --- Test Data Fixture ---
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function") # Keep function scope for temp path
 def temp_order_book_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Creates a temporary directory and path for the order book JSON file."""
     temp_dir = tmp_path_factory.mktemp("dex_data")
-    return temp_dir / "test_order_book.json"
+    file_path = temp_dir / "test_order_book.json"
+    # Ensure the directory exists and the file is clean before each test
+    # Note: tmp_path_factory handles directory creation and cleanup
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    if file_path.exists():
+        file_path.unlink()
+    print(f"\nUsing temp order book: {file_path}")
+    return file_path
 
-@pytest.fixture(scope="module", autouse=True)
-def patch_order_book_path(
+# --- Mock Context Fixture ---
+@pytest.fixture(scope="function")
+def mock_context() -> MagicMock:
+    """Provides a mock MCP Context object."""
+    return MagicMock()
+
+# --- Patched Server Module Fixture ---
+@pytest.fixture(scope="function")
+def patched_server_module(
     monkeypatch: MonkeyPatch, temp_order_book_path: Path
-):
+) -> Generator[types.ModuleType, None, None]:
     """
-    Patches the ORDER_BOOK_FILE path in the server module to use the
-    temporary path for the duration of the test module.
-    Also ensures the data directory exists before the server tries to write.
+    Patches the ORDER_BOOK_FILE path and provides the reloaded server module.
+    Ensures a clean state (including global order_book dict) for each test.
     """
-    # Ensure the parent directory for the temp file exists
-    temp_order_book_path.parent.mkdir(parents=True, exist_ok=True)
+    # 1. Patch the ORDER_BOOK_FILE constant *before* importing/reloading
+    # Use setenv so the reloaded module picks it up via os.getenv
+    monkeypatch.setenv("ORDER_BOOK_FILE", str(temp_order_book_path))
+    print(f"Set ORDER_BOOK_FILE env var to: {temp_order_book_path}")
 
-    # Patch the variable in the server module
-    monkeypatch.setattr(
-        "mcp_solana_dex.server.ORDER_BOOK_FILE", temp_order_book_path, raising=True
-    )
-    # Optionally, patch the environment variable if the server reloads it dynamically
-    # monkeypatch.setenv("ORDER_BOOK_FILE", str(temp_order_book_path))
+    # 2. Reload the server module to pick up the patched path and reset global state
+    # Important: Need to handle potential import errors if module structure changes
+    try:
+        # Ensure the module is loaded initially if not already
+        import mcp_solana_dex.server
+        # Reload the module
+        reloaded_server = importlib.reload(mcp_solana_dex.server)
+        print("Reloaded mcp_solana_dex.server module.")
+        # Explicitly clear the global order_book *after* reload
+        if hasattr(reloaded_server, 'order_book') and isinstance(reloaded_server.order_book, dict):
+            reloaded_server.order_book.clear()
+            print(f"Cleared global order_book dictionary after reload. ID: {id(reloaded_server.order_book)}, Content: {reloaded_server.order_book}") # Added logging
+        else:
+            print("Warning: Could not find or clear order_book dictionary after reload.")
+    except Exception as e:
+        pytest.fail(f"Failed to reload or clear order_book in mcp_solana_dex.server: {e}")
 
-    print(f"Patched ORDER_BOOK_FILE to: {temp_order_book_path}") # For debugging test setup
+    # 3. Yield the reloaded module to the test
+    yield reloaded_server
 
-    # Clean up the file before the module starts (optional, tmp_path should be clean)
-    if temp_order_book_path.exists():
-        temp_order_book_path.unlink()
+    # 4. Cleanup (optional, could reset state further if needed)
+    print("Finished test using patched server module.")
 
-    yield # Run tests
-
-    # Clean up after tests in the module (optional, tmp_path handles dir removal)
-    # if temp_order_book_path.exists():
-    #     try:
-    #         temp_order_book_path.unlink()
-    #     except OSError:
-    #         pass # Ignore errors during cleanup
-
-# --- Server Process Fixture ---
-
-@pytest_asyncio.fixture(scope="module")
-async def dex_server_process() -> AsyncGenerator[Tuple[asyncio.subprocess.Process, asyncio.StreamWriter, asyncio.StreamReader], None]:
-    """
-    Starts the mcp_solana_dex/server.py as a subprocess for integration tests.
-
-    Yields:
-        A tuple containing the process object, stdin writer, and stdout reader.
-    """
-    server_path = ROOT_DIR / "mcp_solana_dex" / "server.py"
-    process = await asyncio.create_subprocess_exec(
-        sys.executable, # Use the same python interpreter running pytest
-        str(server_path),
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE, # Capture stderr for debugging
-        cwd=ROOT_DIR # Run from project root
-    )
-
-    # Give the server a moment to start up
-    await asyncio.sleep(1.5) # Adjust if needed
-
-    # Check if the process started successfully
-    if process.returncode is not None:
-        stdout, stderr = await process.communicate()
-        pytest.fail(
-            f"Server process failed to start (return code: {process.returncode}).\n"
-            f"Stderr:\n{stderr.decode(errors='ignore')}\n"
-            f"Stdout:\n{stdout.decode(errors='ignore')}"
-        )
-
-    print(f"\nStarted DEX server process (PID: {process.pid})")
-
-    # Type assertion for clarity, as PIPE guarantees these are not None
-    stdin_writer = process.stdin
-    stdout_reader = process.stdout
-    assert isinstance(stdin_writer, asyncio.StreamWriter)
-    assert isinstance(stdout_reader, asyncio.StreamReader)
-
-    yield process, stdin_writer, stdout_reader
-
-    # --- Cleanup ---
-    print(f"\nTerminating DEX server process (PID: {process.pid})...")
-    if process.returncode is None: # Only terminate if still running
-        stdin_writer.close() # Close stdin first
-        try:
-            await stdin_writer.wait_closed()
-        except ConnectionResetError:
-            pass # Ignore if server already closed connection
-
-        process.terminate()
-        try:
-            # Wait with a timeout
-            await asyncio.wait_for(process.wait(), timeout=5.0)
-            print(f"Server process {process.pid} terminated gracefully.")
-        except asyncio.TimeoutError:
-            print(f"Server process {process.pid} did not terminate gracefully, killing...")
-            process.kill()
-            await process.wait() # Ensure it's killed
-        except ProcessLookupError:
-            print(f"Server process {process.pid} already exited.") # Handle race condition
-
-    # Drain stderr to avoid warnings and capture final output
-    if process.stderr:
-        try:
-            stderr_output = await process.stderr.read()
-            if stderr_output:
-                print(f"--- Server Stderr (PID: {process.pid}) ---\n"
-                      f"{stderr_output.decode(errors='ignore')}\n"
-                      f"---------------------------------------")
-        except Exception as e:
-            print(f"Error reading stderr from server process {process.pid}: {e}")
+# --- Server Process Fixture (REMOVED) ---
+# The dex_server_process fixture is no longer needed as we test functions directly.

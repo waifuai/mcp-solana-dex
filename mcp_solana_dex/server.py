@@ -67,31 +67,38 @@ def load_order_book():
 
 def save_order_book():
     """Saves the current order book to the JSON file."""
+    print(f"--- ENTERING save_order_book for {ORDER_BOOK_FILE} ---") # Add simple print
     try:
+        logger.info(f"Attempting to save order book to {ORDER_BOOK_FILE}...")
+ # Use INFO for visibility
+        logger.debug(f"ORDER_BOOK_FILE type: {type(ORDER_BOOK_FILE)}, value: {ORDER_BOOK_FILE}")
+        logger.debug(f"Parent directory: {ORDER_BOOK_FILE.parent}")
         ORDER_BOOK_FILE.parent.mkdir(parents=True, exist_ok=True) # Ensure data directory exists
+        logger.debug(f"Parent directory exists after mkdir: {ORDER_BOOK_FILE.parent.exists()}")
         # Convert Pubkey objects back to strings if they exist in the model
         serializable_book = {
             k: [o.model_dump() for o in v]
             for k, v in order_book.items()
         }
         with open(ORDER_BOOK_FILE, 'w') as f:
+            logger.debug("Opened file for writing.")
             json.dump(serializable_book, f, indent=4)
-        logger.debug(f"Saved order book to {ORDER_BOOK_FILE}")
+            logger.debug("Finished json.dump.")
+        logger.info(f"Successfully wrote to {ORDER_BOOK_FILE}") # Use INFO
+        logger.debug(f"Checking existence immediately after write: {ORDER_BOOK_FILE.exists()}")
     except IOError as e:
-        logger.error(f"Error saving order book to {ORDER_BOOK_FILE}: {e}")
+        logger.exception(f"IOError saving order book to {ORDER_BOOK_FILE}: {e}")
+ # Use exception for full traceback
+        print(f"!!! IOError IN save_order_book !!!: {e}")
+    except Exception as e:
+        logger.exception(f"Unexpected error saving order book: {e}") # Catch any other errors
+        print(f"!!! EXCEPTION IN save_order_book !!!: {e}") # Also print
 
 # --- Server Setup ---
 mcp = FastMCP(name="Solana DEX Server")
 
-@mcp.on_event("startup")
-async def startup_event():
-    """Load data on startup."""
-    load_order_book()
-
-@mcp.on_event("shutdown")
-async def shutdown_event():
-    """Save data on shutdown."""
-    save_order_book()
+# Load the order book immediately when the server module is loaded
+load_order_book()
 
 # --- Helper Functions ---
 # (Add any necessary helpers, e.g., for Solana interactions if not done client-side)
@@ -109,14 +116,20 @@ async def create_order(
     # token_mint_address: str = Field(..., description="The mint address of the token."),
 ) -> str:
     """Creates a new sell order in the DEX."""
+    logger.info(f"Received create_order request for ico_id={ico_id}, amount={amount}, price={price}, owner={owner}")
     # TODO: Add validation (e.g., does owner have sufficient tokens? - requires Solana call)
     try:
         owner_pubkey = Pubkey.from_string(owner) # Validate pubkey format
+        logger.debug(f"Validated owner pubkey: {owner_pubkey}")
         order = Order(ico_id=ico_id, amount=amount, price=price, owner=owner)
+        logger.debug(f"Created Order object: {order.order_id}")
 
         if ico_id not in order_book:
             order_book[ico_id] = []
+            logger.debug(f"Initialized order book for new ico_id: {ico_id}")
         order_book[ico_id].append(order)
+        logger.debug(f"Appended order {order.order_id} to book for {ico_id}")
+        logger.info("Calling save_order_book() from create_order...") # Add log
         save_order_book() # Save after modification
         logger.info(f"Created order {order.order_id} for {amount} tokens of {ico_id} by {owner}")
         return f"Order {order.order_id} created successfully for {amount} tokens of {ico_id} at price {price} SOL."
@@ -150,6 +163,7 @@ async def cancel_order(
                 break
 
         if order_to_cancel:
+            logger.info("Calling save_order_book() from cancel_order...") # Add log
             save_order_book() # Save after modification
             logger.info(f"Cancelled order {order_id} for ICO {ico_id} by {owner}")
             return f"Order {order_id} cancelled successfully."
@@ -234,6 +248,7 @@ async def execute_order(
         else:
             logger.info(f"Order {order_id} partially executed. Remaining amount: {order_to_execute.amount}")
 
+        logger.info("Calling save_order_book() from execute_order...") # Add log
         save_order_book() # Save after modification
 
         return (f"Successfully executed order {order_id}. "
@@ -251,15 +266,29 @@ async def execute_order(
 async def get_orders(
     context: Context,
     ico_id: str = Field(..., description="The ICO ID to fetch orders for."),
-    limit: Optional[int] = Field(100, description="Maximum number of orders to return."),
+        # Keep the Field definition for MCP schema generation, but handle default in code
+    limit: Optional[int] = Field(None, description="Maximum number of orders to return (default 100)."),
 ) -> str:
     """Retrieves the current sell orders for a given ICO ID."""
+    # Explicitly set default if None is passed or handle potential FieldInfo object
+    # Check for None explicitly, as Field(None,...) might still pass FieldInfo
+    effective_limit = 100 if limit is None else limit
+    # Add an extra check in case FieldInfo object is passed despite default=None
+    if not isinstance(effective_limit, int):
+        logger.warning(f"Limit parameter was not None or int, defaulting to 100. Type: {type(limit)}")
+        effective_limit = 100
+
+    logger.debug(f"get_orders called for {ico_id} with limit={limit}, effective_limit={effective_limit}")
+
     if ico_id not in order_book:
+        logger.debug(f"No orders found for ico_id {ico_id}")
         return json.dumps({"ico_id": ico_id, "orders": []})
 
-    orders_to_return = order_book[ico_id][:limit]
+    # Use the effective_limit which is guaranteed to be an int
+    orders_to_return = order_book[ico_id][:effective_limit]
     # Sort by price (ascending) for a typical order book view
     orders_to_return.sort(key=lambda o: o.price)
+    logger.debug(f"Returning {len(orders_to_return)} orders for {ico_id}")
 
     return json.dumps(
         {"ico_id": ico_id, "orders": [o.model_dump() for o in orders_to_return]},
