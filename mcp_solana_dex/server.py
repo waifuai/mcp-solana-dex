@@ -12,7 +12,9 @@ from solders.keypair import Keypair
 from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.rpc.config import RpcTransactionConfig
-from solders.rpc.responses import SendTransactionResp, SimulateTransactionResp
+from solders.rpc.responses import SendTransactionResp, SimulateTransactionResp, GetBalanceResp, GetTokenAccountBalanceResp # Added RPC response types
+from solana.rpc.core import RPCException # Use general RPCException for error handling
+from solana.rpc.async_api import AsyncClient # Corrected import path for AsyncClient
 from solders.signature import Signature
 from solders.transaction import Transaction
 from spl.token.constants import TOKEN_PROGRAM_ID
@@ -28,6 +30,7 @@ load_dotenv(dotenv_path=dotenv_path)
 
 RPC_ENDPOINT = os.getenv("RPC_ENDPOINT", "http://localhost:8899")
 ORDER_BOOK_FILE = Path(__file__).parent.parent / os.getenv("ORDER_BOOK_FILE", "data/order_book.json")
+LAMPORTS_PER_SOL = 1_000_000_000
 # Optional: Load token mint if needed, otherwise it might be passed in requests
 # TOKEN_MINT_ADDRESS = Pubkey.from_string(os.getenv("TOKEN_MINT_ADDRESS"))
 
@@ -182,21 +185,18 @@ async def execute_order(
     order_id: str = Field(..., description="The ID of the order to execute (buy from)."),
     buyer: str = Field(..., description="The public key string of the buyer."),
     amount: int = Field(..., description="The amount of tokens to buy (in base units)."),
-    # Required transaction details for the exchange
-    seller_token_transfer_tx: str = Field(..., description="Signature of the pre-signed transaction transferring tokens from seller to buyer."),
-    buyer_sol_payment_tx: str = Field(..., description="Signature of the pre-signed transaction transferring SOL payment from buyer to seller."),
+    # Removed pre-signed transaction signature parameters
     token_mint_address: str = Field(..., description="The mint address of the token being traded."),
     token_decimals: int = Field(..., description="The decimals of the token being traded."),
 ) -> str:
     """
-    Executes (partially or fully) an existing sell order.
-    Requires pre-signed transactions for both token transfer and SOL payment.
-    This is a simplified model; real DEX execution is more complex (atomic swaps).
+    Performs pre-condition checks for executing a sell order and updates the internal
+    order book if checks pass. Does NOT execute the on-chain transaction.
+    Checks: Buyer SOL balance, Seller token balance.
+    Clients must construct and submit the actual atomic swap transaction separately
+    after receiving a success response from this tool.
     """
-    # WARNING: This is a highly simplified and potentially unsafe execution model.
-    # A real DEX needs atomic swaps (e.g., via Serum or a custom program)
-    # to prevent one party from failing to fulfill their side after the other has.
-    # Validating pre-signed transactions here is complex and requires careful checks.
+    logger.info(f"Received execute_order pre-check request for order {order_id}, ico_id={ico_id}, buyer={buyer}, amount={amount}")
     try:
         buyer_pubkey = Pubkey.from_string(buyer)
         mint_pubkey = Pubkey.from_string(token_mint_address)
@@ -222,23 +222,65 @@ async def execute_order(
             return f"Error: Not enough tokens available in order {order_id}. Available: {order_to_execute.amount}, Requested: {amount}."
 
         seller_pubkey = Pubkey.from_string(order_to_execute.owner)
-        required_sol = (amount / (10**token_decimals)) * order_to_execute.price
+        required_sol_float = (amount / (10**token_decimals)) * order_to_execute.price
+        required_sol_lamports = int(required_sol_float * LAMPORTS_PER_SOL)
 
-        # --- CRITICAL: Transaction Validation (Simplified Placeholder) ---
-        # In a real system, you would need to:
-        # 1. Fetch both transactions using their signatures via RPC.
-        # 2. Decode the transactions.
-        # 3. Verify the instructions match EXACTLY what is expected:
-        #    - seller_token_transfer_tx: Transfers `amount` tokens from `seller_pubkey`'s ATA to `buyer_pubkey`'s ATA for the correct `mint_pubkey`.
-        #    - buyer_sol_payment_tx: Transfers `required_sol` (in lamports) from `buyer_pubkey` to `seller_pubkey`.
-        # 4. Verify the transactions are signed by the correct parties (seller for token tx, buyer for SOL tx).
-        # 5. Verify recent blockhashes are valid.
-        # This validation is complex and omitted here for brevity. Assuming validation passes.
-        logger.warning("Executing order with simplified transaction validation. THIS IS NOT PRODUCTION SAFE.")
+        # --- Pre-Condition Checks ---
+        async with AsyncClient(RPC_ENDPOINT) as client:
+            logger.debug(f"Connecting to RPC: {RPC_ENDPOINT}")
+            is_connected = await client.is_connected()
+            if not is_connected:
+                logger.error(f"Failed to connect to RPC endpoint: {RPC_ENDPOINT}")
+                return "Error: Could not connect to Solana RPC to verify balances."
+            logger.debug("RPC Connection successful.")
 
-        # Simulate sending/confirming (in reality, the client or another service might submit)
-        logger.info(f"Simulating confirmation of seller token transfer: {seller_token_transfer_tx}")
-        logger.info(f"Simulating confirmation of buyer SOL payment: {buyer_sol_payment_tx}")
+            # 1. Check Buyer SOL Balance
+            try:
+                logger.debug(f"Checking buyer SOL balance for {buyer_pubkey}...")
+                balance_resp: GetBalanceResp = await client.get_balance(buyer_pubkey)
+                buyer_lamports = balance_resp.value
+                logger.debug(f"Buyer ({buyer_pubkey}) balance: {buyer_lamports} lamports. Required: {required_sol_lamports}")
+                if buyer_lamports < required_sol_lamports:
+                    return (f"Error: Insufficient SOL balance for buyer {buyer}. "
+                            f"Required: {required_sol_lamports} lamports ({required_sol_float:.9f} SOL), "
+                            f"Available: {buyer_lamports} lamports.")
+            except Exception as e:
+                logger.exception(f"Error checking buyer SOL balance: {e}")
+                return f"Error checking buyer SOL balance: {e}"
+
+            # 2. Check Seller Token Balance
+            try:
+                seller_ata_pubkey = get_associated_token_address(seller_pubkey, mint_pubkey)
+                logger.debug(f"Checking seller token balance for ATA {seller_ata_pubkey} (Owner: {seller_pubkey}, Mint: {mint_pubkey})...")
+                try:
+                    token_resp: GetTokenAccountBalanceResp = await client.get_token_account_balance(seller_ata_pubkey)
+                    seller_token_balance = int(token_resp.value.amount) # Amount is string, convert to int
+                    logger.debug(f"Seller ({seller_pubkey}) token balance: {seller_token_balance} base units. Required: {amount}")
+                except RPCException as rpc_err: # Catch general RPCException
+                    # Check if the error indicates the account doesn't exist
+                    # This is a common way RPC indicates zero balance for non-existent ATAs
+                    # Error structure might vary slightly, adjust if needed based on actual RPC responses
+                    # Check the exception arguments for specific error messages/codes if available
+                    err_str = str(rpc_err)
+                    if "Account not found" in err_str or "Invalid param: could not find account" in err_str:
+                         logger.warning(f"Seller's ATA {seller_ata_pubkey} not found. Assuming 0 balance.")
+                         seller_token_balance = 0
+                    else:
+                         raise # Re-raise other RPC errors
+                except Exception as e:
+                     # Catch potential errors during parsing or unexpected issues
+                     logger.exception(f"Unexpected error fetching seller token balance: {e}")
+                     return f"Unexpected error fetching seller token balance: {e}"
+
+
+                if seller_token_balance < amount:
+                    return (f"Error: Insufficient token balance for seller {seller_pubkey}. "
+                            f"Required: {amount} base units, Available: {seller_token_balance} base units.")
+            except Exception as e:
+                logger.exception(f"Error checking seller token balance: {e}")
+                return f"Error checking seller token balance: {e}"
+
+        logger.info("Pre-condition checks passed (Buyer SOL, Seller Tokens).")
 
         # --- Update Order Book ---
         order_to_execute.amount -= amount
@@ -251,9 +293,13 @@ async def execute_order(
         logger.info("Calling save_order_book() from execute_order...") # Add log
         save_order_book() # Save after modification
 
-        return (f"Successfully executed order {order_id}. "
-                f"Bought {amount / (10**token_decimals)} tokens for {required_sol:.9f} SOL. "
-                f"Seller tx: {seller_token_transfer_tx}, Buyer tx: {buyer_sol_payment_tx}")
+        # Pre-checks passed, update internal state
+        logger.info("Calling save_order_book() from execute_order after successful pre-checks...")
+        save_order_book() # Save after modification
+
+        return (f"Pre-conditions met for order {order_id}. "
+                f"Buyer has sufficient SOL, Seller has sufficient tokens. "
+                f"Order book updated. Client should now submit the atomic swap transaction.")
 
     except ValueError as e:
         return f"Invalid public key or mint address format: {e}"

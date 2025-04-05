@@ -17,7 +17,7 @@ This server provides basic DEX functionalities for tokens associated with ICOs m
 *   **File-Based Persistence:** Stores the order book in a JSON file (`data/order_book.json` by default).
 *   **ICO Association:** Orders are associated with specific `ico_id`s.
 
-**Disclaimer:** This is a simplified example. The `execute_order` tool uses a non-atomic, potentially unsafe model requiring pre-signed transactions. **This is NOT suitable for production.** A real DEX requires atomic swaps for secure execution.
+**Disclaimer:** This is a simplified example. The `execute_order` tool performs **server-side pre-condition checks** (buyer SOL balance, seller token balance) before updating the internal order book. It **does NOT execute the on-chain atomic swap**. Clients interacting with this server are responsible for constructing and submitting the actual atomic swap transaction after receiving a success response from `execute_order`. **This is NOT suitable for production without a robust client-side atomic swap implementation.**
 
 ## Configuration (`./.env`)
 
@@ -61,22 +61,21 @@ This server is intended to be run as a separate process from the main ICO server
     *   `ico_id`: (String) The ID of the ICO.
     *   `order_id`: (String) The unique ID of the order to cancel.
     *   `owner`: (String) Public key of the seller (must match order).
-*   **`execute_order`:** Executes a sell order (buyer buys from seller).
+*   **`execute_order`:** Performs pre-condition checks for executing a sell order and updates the internal order book if checks pass. **Does not execute the on-chain swap.**
     *   `ico_id`: (String) The ID of the ICO.
     *   `order_id`: (String) The ID of the order to buy from.
     *   `buyer`: (String) Public key of the buyer.
     *   `amount`: (Integer) Amount of tokens to buy (base units).
-    *   `seller_token_transfer_tx`: (String) Signature of the pre-signed tx: seller tokens -> buyer.
-    *   `buyer_sol_payment_tx`: (String) Signature of the pre-signed tx: buyer SOL -> seller.
     *   `token_mint_address`: (String) Mint address of the token.
     *   `token_decimals`: (Integer) Decimals of the token.
+    *   *Note:* Clients must construct and submit the actual atomic swap transaction separately after successful pre-checks.
 *   **`get_orders`:** Retrieves the current sell orders for an ICO.
     *   `ico_id`: (String) The ID of the ICO.
     *   `limit`: (Integer, optional) Max orders to return (default 100).
 
 ## Testing
 
-This project uses `pytest` for integration testing. The tests run the server as a subprocess and interact with it via its standard input/output, simulating an MCP client.
+This project uses `pytest` for integration testing. The tests primarily call the server's tool functions directly, mocking necessary external interactions (like Solana RPC calls) to verify the server's internal logic and state management.
 
 1.  **Install Development Dependencies:**
     Make sure you have the main dependencies installed, then install the development dependencies which include `pytest` and `pytest-asyncio`:
@@ -98,7 +97,7 @@ This project uses `pytest` for integration testing. The tests run the server as 
 
 ## Future Considerations
 
-*   **Atomic Swaps:** Implement secure, atomic order execution using Solana programs or established protocols.
+*   **Client-Side Atomic Swaps:** Ensure clients interacting with this server implement secure, atomic order execution (combining SOL payment and token transfer) using appropriate Solana transaction construction. The server only performs pre-checks.
 *   **Database Persistence:** Replace file storage with a database (e.g., SQLite, PostgreSQL) for better scalability and reliability.
 *   **Buy Orders:** Add support for creating and matching buy orders.
 *   **Error Handling:** Improve validation and error handling.
