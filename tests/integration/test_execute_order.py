@@ -1,3 +1,28 @@
+"""
+Integration Tests for execute_order Functionality
+
+This module contains comprehensive integration tests for the execute_order MCP tool
+functionality. The tests validate the pre-condition checking process and order
+execution workflow.
+
+Test Coverage:
+- Successful full order execution with sufficient balances
+- Successful partial order execution
+- Error handling for insufficient available order amounts
+- Error handling for non-existent orders
+- Error handling for invalid public key formats
+- Pre-check failures due to insufficient buyer SOL balance
+- Pre-check failures due to insufficient seller token balance
+- RPC connection and balance verification mocking
+- Order book updates after successful execution
+- Order amount reduction for partial executions
+- Order removal for full executions
+
+The tests use extensive mocking of Solana RPC calls to simulate various balance
+scenarios and ensure the pre-condition checks work correctly without requiring
+actual blockchain interaction.
+"""
+
 import asyncio
 import json
 import uuid

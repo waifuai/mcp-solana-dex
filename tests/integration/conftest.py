@@ -1,3 +1,27 @@
+"""
+Pytest Configuration and Fixtures for Integration Tests
+
+This module provides the test configuration and fixtures needed for running
+integration tests against the MCP Solana DEX server. It sets up the testing
+environment with proper isolation and mocking.
+
+Key Features:
+- Temporary order book files for each test function
+- Mocked MCP Context objects for testing
+- Patched server module with clean state for each test
+- Environment variable mocking for test isolation
+- Automatic cleanup and state reset between tests
+
+Fixtures Provided:
+- temp_order_book_path: Creates temporary directory and order book file path
+- mock_context: Provides mock MCP Context for tool function testing
+- patched_server_module: Reloads server module with patched environment and
+  clears global state to ensure test isolation
+
+The module ensures that each test runs with a clean slate and doesn't interfere
+with other tests or the actual server configuration.
+"""
+
 import asyncio
 import json
 import os

@@ -1,3 +1,33 @@
+"""
+Solana DEX Server Implementation
+
+This is the main server implementation for a Solana-based decentralized exchange (DEX)
+that operates as an MCP (Model Context Protocol) service. The server provides tools
+for managing ICO token orders with the following key features:
+
+Core Functionality:
+- Order Management: Create, cancel, execute, and retrieve sell orders
+- Persistence: JSON-based order book storage with automatic save/load
+- Pre-condition Validation: Solana RPC integration for balance verification
+- Safety Checks: Validates buyer SOL and seller token balances before execution
+
+MCP Tools Provided:
+1. create_order: Creates new sell orders for ICO tokens
+2. cancel_order: Cancels existing orders (owner verification required)
+3. execute_order: Performs pre-checks and updates order book state
+4. get_orders: Retrieves current orders for an ICO with optional limit
+
+Key Components:
+- Order data model with Pydantic validation
+- Async Solana RPC client for balance checks
+- Environment-based configuration for RPC endpoints and storage paths
+- Comprehensive error handling and logging
+- UUID-based order identification
+
+The server acts as a validation layer that performs all necessary checks before
+clients submit actual blockchain transactions, reducing failed transaction costs.
+"""
+
 import asyncio
 import json
 import os

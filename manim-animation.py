@@ -1,3 +1,20 @@
+"""
+Solana DEX Animation Script
+
+This script creates educational animations using Manim to visualize and explain the
+Solana DEX server architecture and functionality. It provides visual explanations of:
+
+1. System Architecture: Shows the relationship between MCP server, Solana DEX,
+   order book persistence, and Solana RPC integration
+2. Order Data Structure: Visualizes the fields and format of orders in the DEX
+3. Core Functions: Explains the four main MCP tools (create, cancel, execute, get orders)
+4. Order Execution Flow: Demonstrates the pre-check process before blockchain transactions
+5. Summary: Provides an overview of the complete system
+
+The animation serves as both documentation and educational material for understanding
+how the DEX server works and integrates with the Solana blockchain.
+"""
+
 from manim import *
 import numpy as np
 

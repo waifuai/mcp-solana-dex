@@ -1,3 +1,25 @@
+"""
+Integration Tests for get_orders Functionality
+
+This module contains integration tests for the get_orders MCP tool functionality.
+The tests validate that order retrieval works correctly with proper sorting,
+filtering, and limit handling.
+
+Test Coverage:
+- Successful order retrieval with price-based sorting (ascending)
+- ICO-specific order filtering (only returns orders for requested ICO)
+- Optional limit parameter functionality
+- Sorting verification (lowest price first)
+- Order data integrity validation
+- Handling of ICOs with no existing orders
+- Empty order book responses
+- JSON response format validation
+
+The tests create multiple orders with different prices to verify the sorting
+functionality and ensure that the get_orders tool returns properly formatted
+JSON responses with orders sorted by price.
+"""
+
 import asyncio
 import json
 import uuid

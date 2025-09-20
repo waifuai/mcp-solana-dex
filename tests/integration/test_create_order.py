@@ -1,3 +1,22 @@
+"""
+Integration Tests for create_order Functionality
+
+This module contains integration tests for the create_order MCP tool functionality.
+The tests validate that the order creation process works correctly and handles
+various edge cases and error conditions.
+
+Test Coverage:
+- Successful order creation with valid parameters
+- Error handling for invalid owner public key formats
+- Order persistence to JSON file
+- Order book initialization for new ICO IDs
+- UUID generation and assignment for orders
+- Input validation for public key formats
+
+The tests use the patched server module fixture to ensure clean state and
+temporary file storage for each test, providing reliable and isolated testing.
+"""
+
 import asyncio
 import json
 import uuid

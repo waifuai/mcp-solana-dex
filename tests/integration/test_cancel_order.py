@@ -1,3 +1,23 @@
+"""
+Integration Tests for cancel_order Functionality
+
+This module contains integration tests for the cancel_order MCP tool functionality.
+The tests validate that the order cancellation process works correctly and includes
+proper authorization checks and error handling.
+
+Test Coverage:
+- Successful order cancellation with valid owner
+- Error handling for non-existent orders
+- Authorization verification (owner-only cancellation)
+- Error handling for invalid owner public key formats
+- Order removal from JSON file after cancellation
+- Proper handling of ICO IDs with no existing orders
+- Verification that unauthorized users cannot cancel orders
+
+The tests use the patched server module fixture to ensure clean state and
+temporary file storage for each test, providing reliable and isolated testing.
+"""
+
 import asyncio
 import json
 import uuid
