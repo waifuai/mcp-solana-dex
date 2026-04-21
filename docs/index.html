@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>mcp-solana-dex Documentation</title>
+<style>
+
+:root {
+  --bg: #0d1117;
+  --card-bg: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
+  --accent2: #7ee787;
+  --accent3: #d2a8ff;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 2rem; }
+.container { max-width: 1100px; margin: 0 auto; }
+header { text-align: center; margin-bottom: 3rem; padding: 2rem 0; border-bottom: 1px solid var(--border); }
+header h1 { font-size: 2.5rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent3)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 0.5rem; }
+header p { color: var(--text-muted); font-size: 1.1rem; }
+section { margin-bottom: 2.5rem; }
+h2 { font-size: 1.4rem; margin-bottom: 0.75rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 0.5rem; }
+.count { font-size: 0.85rem; color: var(--text-muted); font-weight: 400; }
+.section-desc { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem; }
+.link-list { display: flex; flex-direction: column; gap: 0.25rem; }
+.link-list a { color: var(--accent); text-decoration: none; padding: 0.4rem 0.75rem; border-radius: 6px; transition: background 0.15s; font-size: 0.95rem; }
+.link-list a:hover { background: var(--card-bg); text-decoration: underline; }
+footer { text-align: center; color: var(--text-muted); font-size: 0.8rem; padding-top: 2rem; border-top: 1px solid var(--border); margin-top: 2rem; }
+
+</style>
+
+</head>
+<body>
+<div class="container">
+
+<header>
+<h1>mcp-solana-dex</h1>
+<p>GitHub Pages documentation</p>
+</header>
+
+<section>
+<h2>Project Description</h2>
+<h1>MCP Solana DEX Server</h1>
+<p>This directory contains a a simple Decentralized Exchange (DEX) MCP server.</p>
+<h2>Purpose</h2>
+<p>This server provides basic DEX functionalities for tokens associated with ICOs managed by the main server:</p>
+<ul>
+<li>Creating sell orders.</li>
+<li>Cancelling sell orders.</li>
+<li>Executing sell orders (buying from existing orders).</li>
+<li>Retrieving the current order book for an ICO.</li>
+</ul>
+<h2>Features</h2>
+<ul>
+<li><strong>MCP Tools:</strong> Exposes DEX functions as MCP tools (<code>create_order</code>, <code>cancel_order</code>, <code>execute_order</code>, <code>get_orders</code>).</li>
+<li><strong>File-Based Persistence:</strong> Stores the order book in a JSON file (<code>data/order_book.json</code> by default).</li>
+<li><strong>ICO Association:</strong> Orders are associated with specific <code>ico_id</code>s.</li>
+</ul>
+<p><strong>Disclaimer:</strong> This is a simplified example. The <code>execute_order</code> tool performs <strong>server-side pre-condition checks</strong> (buyer SOL balance, seller token balance) before updating the internal order book. It <strong>does NOT execute the on-chain atomic swap</strong>. Clients interacting with this server are responsible for constructing and submitting the actual atomic swap transaction after receiving a success response from <code>execute_order</code>. <strong>This is NOT suitable for production without a robust client-side atomic swap implementation.</strong></p>
+<h2>Configuration (<code>./.env</code>)</h2>
+<p>Create a <code>.env</code> file in this directory (<code>./</code>) with the following:</p>
+<pre><code class="language-dotenv"># Configuration for MCP Solana DEX Sub-project
+
+# Solana RPC Endpoint (use the same as the main project or specify a different one)
+RPC_ENDPOINT=&quot;http://localhost:8899&quot;
+
+# Path to the order book data file (relative to this directory)
+ORDER_BOOK_FILE=&quot;data/order_book.json&quot;
+
+# Optional: Define the token mint address if needed globally
+# TOKEN_MINT_ADDRESS=&quot;TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA&quot;
+</code></pre>
+<h2>Usage</h2>
+<p>This server is intended to be run as a separate process from the main ICO server.</p>
+<ol>
+<li><strong>Ensure Dependencies:</strong> Make sure dependencies are installed (likely managed by the parent project's <code>poetry install</code>).</li>
+<li><strong>Navigate to Parent Directory:</strong> Open your terminal in the main project root.</li>
+<li>
+<p><strong>Start the DEX Server:</strong></p>
+<p><code>bash
+poetry run python mcp_solana_dex/server.py</code></p>
+</li>
+<li>
+<p><strong>Interact:</strong> Use an MCP client connected to the standard input/output of this process.</p>
+</li>
+</ol>
+<h2>MCP Tools</h2>
+<ul>
+<li><strong><code>create_order</code>:</strong> Creates a new sell order.<ul>
+<li><code>ico_id</code>: (String) The ID of the ICO for the token.</li>
+<li><code>amount</code>: (Integer) Amount of tokens to sell (base units).</li>
+<li><code>price</code>: (Float) Price per token in SOL.</li>
+<li><code>owner</code>: (String) Public key of the seller.</li>
+</ul>
+</li>
+<li><strong><code>cancel_order</code>:</strong> Cancels an existing order.<ul>
+<li><code>ico_id</code>: (String) The ID of the ICO.</li>
+<li><code>order_id</code>: (String) The unique ID of the order to cancel.</li>
+<li><code>owner</code>: (String) Public key of the seller (must match order).</li>
+</ul>
+</li>
+<li><strong><code>execute_order</code>:</strong> Performs pre-condition checks for executing a sell order and updates the internal order book if checks pass. <strong>Does not execute the on-chain swap.</strong><ul>
+<li><code>ico_id</code>: (String) The ID of the ICO.</li>
+<li><code>order_id</code>: (String) The ID of the order to buy from.</li>
+<li><code>buyer</code>: (String) Public key of the buyer.</li>
+<li><code>amount</code>: (Integer) Amount of tokens to buy (base units).</li>
+<li><code>token_mint_address</code>: (String) Mint address of the token.</li>
+<li><code>token_decimals</code>: (Integer) Decimals of the token.</li>
+<li><em>Note:</em> Clients must construct and submit the actual atomic swap transaction separately after successful pre-checks.</li>
+</ul>
+</li>
+<li><strong><code>get_orders</code>:</strong> Retrieves the current sell orders for an ICO.<ul>
+<li><code>ico_id</code>: (String) The ID of the ICO.</li>
+<li><code>limit</code>: (Integer, optional) Max orders to return (default 100).</li>
+</ul>
+</li>
+</ul>
+<h2>Testing</h2>
+<p>This project uses <code>pytest</code> for integration testing. The tests primarily call the server's tool functions directly, mocking necessary external interactions (like Solana RPC calls) to verify the server's internal logic and state management.</p>
+<ol>
+<li>
+<p><strong>Install Development Dependencies:</strong>
+    Make sure you have the main dependencies installed, then install the development dependencies which include <code>pytest</code> and <code>pytest-asyncio</code>:</p>
+<p>```bash</p>
+<h1>Navigate to the project root directory (where pyproject.toml is)</h1>
+<p>poetry install --with dev
+```</p>
+</li>
+<li>
+<p><strong>Run Tests:</strong>
+    Execute <code>pytest</code> from the project root directory:</p>
+<p><code>bash
+poetry run pytest</code></p>
+<p>Pytest will automatically discover and run the tests located in the <code>tests/</code> directory.</p>
+</li>
+</ol>
+<h2>Future Considerations</h2>
+<ul>
+<li><strong>Client-Side Atomic Swaps:</strong> Ensure clients interacting with this server implement secure, atomic order execution (combining SOL payment and token transfer) using appropriate Solana transaction construction. The server only performs pre-checks.</li>
+<li><strong>Database Persistence:</strong> Replace file storage with a database (e.g., SQLite, PostgreSQL) for better scalability and reliability.</li>
+<li><strong>Buy Orders:</strong> Add support for creating and matching buy orders.</li>
+<li><strong>Error Handling:</strong> Improve validation and error handling.</li>
+<li><strong>Testing:</strong> Add comprehensive unit and integration tests.</li>
+</ul>
+</section>
+
+<section>
+<h2>Source Code</h2>
+<p class="section-desc">View the repository on GitHub.</p>
+<div class="link-list">
+<a href="https://github.com/waifuai/mcp-solana-dex">GitHub Repository</a>
+</div>
+</section>
+
+
+<footer>
+<p>Generated GitHub Pages for AI agent crawlability.</p>
+</footer>
+
+</div>
+</body>
+</html>
